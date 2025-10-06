@@ -1,0 +1,4 @@
+- [x] Phase 1: Cart redirect to confirmation page with account intent form (completed in mu-plugin).
+- [x] Phase 2: Auto-detect email accounts, create and email new users, and authenticate customers prior to checkout.
+- [ ] Phase 3: Email login links for existing accounts, then redirect with cart intact.
+- [ ] Phase 4: Add WooCommerce settings toggle(s) and optional Cloudflare Turnstile support.
