@@ -10,8 +10,6 @@ class WCRL_Gateway
     private const PAGE_SLUG = 'wc-register-or-login-gateway';
     private const SESSION_KEY = 'wc_register_or_login_gateway_data';
     private const NONCE_ACTION = 'wc_register_or_login_gateway';
-    private const REST_NAMESPACE = 'wc-register-or-login/v1';
-    private const REST_ROUTE_DETECT = '/detect-user';
 
     private ?int $page_id = null;
 
@@ -22,47 +20,9 @@ class WCRL_Gateway
         add_action('wp', [$this, 'capture_page_id']);
         add_action('template_redirect', [$this, 'maybe_redirect_logged_in_gateway'], 1);
         add_action('template_redirect', [$this, 'handle_form_submission']);
-        add_action('rest_api_init', [$this, 'register_rest_routes']);
 
         add_filter('woocommerce_get_checkout_url', [$this, 'filter_checkout_url']);
         add_filter('the_content', [$this, 'maybe_render_gateway_content']);
-    }
-
-    public function register_rest_routes(): void
-    {
-        register_rest_route(
-            self::REST_NAMESPACE,
-            self::REST_ROUTE_DETECT,
-            [
-                'methods'             => WP_REST_Server::READABLE,
-                'callback'            => [$this, 'rest_detect_user'],
-                'permission_callback' => '__return_true',
-                'args'                => [
-                    'email' => [
-                        'type'              => 'string',
-                        'required'          => true,
-                        'sanitize_callback' => 'sanitize_email',
-                        'validate_callback' => function ($value) {
-                            return is_email($value);
-                        },
-                    ],
-                ],
-            ]
-        );
-    }
-
-    public function rest_detect_user(WP_REST_Request $request): WP_REST_Response
-    {
-        $email = (string) $request->get_param('email');
-        $exists = false;
-
-        if ($email && is_email($email)) {
-            $exists = (bool) get_user_by('email', $email);
-        }
-
-        return new WP_REST_Response([
-            'exists' => $exists,
-        ]);
     }
 
     public function register_cart_button_override(): void
@@ -156,17 +116,15 @@ class WCRL_Gateway
         $checkout_url = esc_url(wc_get_checkout_url());
         $session = $this->get_session_data();
         $email = isset($session['email']) ? sanitize_email($session['email']) : '';
-        $mode = isset($session['mode']) ? sanitize_text_field($session['mode']) : 'none';
+        $mode = isset($session['mode']) ? sanitize_key($session['mode']) : 'login';
 
         if ($email && ! is_email($email)) {
             $email = '';
         }
 
-        if ('login' !== $mode && 'register' !== $mode) {
-            $mode = $email && get_user_by('email', $email) ? 'login' : 'none';
+        if (! in_array($mode, ['login', 'register'], true)) {
+            $mode = 'login';
         }
-
-        $rest_endpoint = esc_url_raw(rest_url(self::REST_NAMESPACE . self::REST_ROUTE_DETECT));
         ?>
         <div class="wcrl-gateway">
             <style>
@@ -190,25 +148,37 @@ class WCRL_Gateway
                 @media (max-width: 600px) { .wcrl-gateway { margin: 20px 16px; padding: 24px; } }
             </style>
             <h1><?php esc_html_e('Almost there—let’s get you checked out', 'wc-register-or-login'); ?></h1>
-            <p><?php esc_html_e('Pop in your email and we’ll either log you in or create a new account instantly so checkout stays effortless.', 'wc-register-or-login'); ?></p>
+            <p><?php esc_html_e('Enter your email and choose whether to sign in or create an account to continue to checkout.', 'wc-register-or-login'); ?></p>
             <?php wc_print_notices(); ?>
             <form method="post" action="<?php echo $action; ?>">
                 <?php wp_nonce_field(self::NONCE_ACTION, '_wcrl_nonce'); ?>
                 <label for="wcrl_email"><?php esc_html_e('Email address', 'wc-register-or-login'); ?></label>
                 <input type="email" id="wcrl_email" name="wcrl_email" value="<?php echo esc_attr($email); ?>" required autocomplete="email" />
 
-                <p class="wcrl-status" data-role="status"></p>
-
-                <input type="hidden" id="wcrl_mode" name="wcrl_mode" value="<?php echo esc_attr($mode); ?>" />
+                <fieldset>
+                    <legend class="wcrl-hint"><?php esc_html_e('How would you like to continue?', 'wc-register-or-login'); ?></legend>
+                    <p>
+                        <label for="wcrl_mode_login">
+                            <input type="radio" id="wcrl_mode_login" name="wcrl_mode" value="login" <?php checked('login', $mode); ?> />
+                            <?php esc_html_e('Sign in to my account', 'wc-register-or-login'); ?>
+                        </label>
+                    </p>
+                    <p>
+                        <label for="wcrl_mode_register">
+                            <input type="radio" id="wcrl_mode_register" name="wcrl_mode" value="register" <?php checked('register', $mode); ?> />
+                            <?php esc_html_e('Create a new account', 'wc-register-or-login'); ?>
+                        </label>
+                    </p>
+                </fieldset>
 
                 <div class="wcrl-step wcrl-step--login <?php echo 'login' === $mode ? 'is-active' : ''; ?>" data-step="login">
-                    <p class="wcrl-hint"><?php esc_html_e('Great, we found your account. Enter your password to continue and we’ll log you in automatically.', 'wc-register-or-login'); ?></p>
+                    <p class="wcrl-hint"><?php esc_html_e('Enter your password to sign in and continue to checkout.', 'wc-register-or-login'); ?></p>
                     <label for="wcrl_password_existing"><?php esc_html_e('Account password', 'wc-register-or-login'); ?></label>
                     <input type="password" id="wcrl_password_existing" name="wcrl_password_existing" autocomplete="current-password" <?php echo 'login' === $mode ? '' : 'disabled'; ?> />
                 </div>
 
                 <div class="wcrl-step wcrl-step--register <?php echo 'register' === $mode ? 'is-active' : ''; ?>" data-step="register">
-                    <p class="wcrl-hint"><?php esc_html_e('Looks like you’re new here. Create a password so we can set up your account instantly.', 'wc-register-or-login'); ?></p>
+                    <p class="wcrl-hint"><?php esc_html_e('Create and confirm a password to set up your account and continue.', 'wc-register-or-login'); ?></p>
                     <div class="wcrl-password-row">
                         <label for="wcrl_password_new"><?php esc_html_e('Create password', 'wc-register-or-login'); ?></label>
                         <input type="password" id="wcrl_password_new" name="wcrl_password_new" autocomplete="new-password" <?php echo 'register' === $mode ? '' : 'disabled'; ?> />
@@ -229,18 +199,20 @@ class WCRL_Gateway
             const form = document.querySelector('.wcrl-gateway form');
             if (!form) { return; }
 
-            const emailInput = form.querySelector('#wcrl_email');
             const loginStep = form.querySelector('[data-step="login"]');
             const registerStep = form.querySelector('[data-step="register"]');
             const passwordExisting = form.querySelector('#wcrl_password_existing');
             const passwordNew = form.querySelector('#wcrl_password_new');
             const passwordConfirm = form.querySelector('#wcrl_password_confirm');
-            const statusEl = form.querySelector('[data-role="status"]');
-            const modeInput = form.querySelector('#wcrl_mode');
-            const endpoint = '<?php echo esc_js($rest_endpoint); ?>';
+            const modeLogin = form.querySelector('#wcrl_mode_login');
+            const modeRegister = form.querySelector('#wcrl_mode_register');
 
             const setMode = (mode) => {
-                modeInput.value = mode;
+                if (modeLogin && modeRegister) {
+                    modeLogin.checked = 'login' === mode;
+                    modeRegister.checked = 'register' === mode;
+                }
+
                 if ('login' === mode) {
                     loginStep.classList.add('is-active');
                     registerStep.classList.remove('is-active');
@@ -271,80 +243,24 @@ class WCRL_Gateway
                 }
             };
 
-            const showStatus = (message) => {
-                if (!statusEl) { return; }
-                if (message) {
-                    statusEl.textContent = message;
-                    statusEl.classList.add('is-visible');
-                } else {
-                    statusEl.textContent = '';
-                    statusEl.classList.remove('is-visible');
-                }
-            };
-
-            let controller = null;
-            let lastEmail = '';
-
-            const detect = (email) => {
-                if (!email || email.length < 5 || email === lastEmail) {
-                    return;
-                }
-
-                lastEmail = email;
-
-                if (controller) {
-                    controller.abort();
-                }
-
-                controller = new AbortController();
-
-                showStatus('<?php echo esc_js(__('Checking account status…', 'wc-register-or-login')); ?>');
-
-                fetch(`${endpoint}?email=${encodeURIComponent(email)}`, {
-                    method: 'GET',
-                    signal: controller.signal,
-                    credentials: 'same-origin'
-                })
-                    .then((response) => response.json())
-                    .then((data) => {
-                        const exists = Boolean(data && data.exists);
-                        if (exists) {
-                            setMode('login');
-                            showStatus('<?php echo esc_js(__('Account found. Please enter your password.', 'wc-register-or-login')); ?>');
-                        } else {
-                            setMode('register');
-                            showStatus('<?php echo esc_js(__('No account detected. Create a password to continue.', 'wc-register-or-login')); ?>');
-                        }
-                    })
-                    .catch(() => {
-                        showStatus('<?php echo esc_js(__('We couldn’t verify your account right now. You can still continue and we’ll check on the next step.', 'wc-register-or-login')); ?>');
-                        setMode('none');
-                    });
-            };
-
-            const debounce = (fn, delay) => {
-                let timer;
-                return function(...args) {
-                    clearTimeout(timer);
-                    timer = setTimeout(() => fn.apply(this, args), delay);
-                };
-            };
-
-            emailInput.addEventListener('input', debounce((event) => {
-                const value = event.target.value.trim();
-                if (!value) {
-                    showStatus('');
-                    setMode('none');
-                    lastEmail = '';
-                    return;
-                }
-                detect(value);
-            }, 400));
-
-            const initialMode = modeInput.value;
-            if (initialMode) {
-                setMode(initialMode);
+            if (modeLogin) {
+                modeLogin.addEventListener('change', () => {
+                    if (modeLogin.checked) {
+                        setMode('login');
+                    }
+                });
             }
+
+            if (modeRegister) {
+                modeRegister.addEventListener('change', () => {
+                    if (modeRegister.checked) {
+                        setMode('register');
+                    }
+                });
+            }
+
+            const initialMode = modeRegister && modeRegister.checked ? 'register' : 'login';
+            setMode(initialMode);
 
         })();
         </script>
@@ -379,6 +295,11 @@ class WCRL_Gateway
         }
 
         $email = isset($_POST['wcrl_email']) ? sanitize_email(wp_unslash($_POST['wcrl_email'])) : '';
+        $mode = isset($_POST['wcrl_mode']) ? sanitize_key(wp_unslash($_POST['wcrl_mode'])) : 'login';
+
+        if (! in_array($mode, ['login', 'register'], true)) {
+            $mode = 'login';
+        }
 
         if (empty($email) || ! is_email($email)) {
             wc_add_notice(__('Please enter a valid email address to continue.', 'wc-register-or-login'), 'error');
@@ -387,13 +308,23 @@ class WCRL_Gateway
         }
 
         $user = get_user_by('email', $email);
-        $mode = $user ? 'login' : 'register';
 
         if ('login' === $mode) {
             $password = isset($_POST['wcrl_password_existing']) ? (string) wp_unslash($_POST['wcrl_password_existing']) : '';
 
             if ('' === $password) {
                 wc_add_notice(__('Please enter your account password so we can log you in.', 'wc-register-or-login'), 'error');
+                $this->persist_session_data([
+                    'email'        => $email,
+                    'mode'         => 'login',
+                    'submitted_at' => time(),
+                ]);
+                wp_safe_redirect($this->get_gateway_url());
+                exit;
+            }
+
+            if (! $user) {
+                wc_add_notice(__('We couldn’t sign you in with those details. Please check your email and password or create a new account.', 'wc-register-or-login'), 'error');
                 $this->persist_session_data([
                     'email'        => $email,
                     'mode'         => 'login',
@@ -412,7 +343,7 @@ class WCRL_Gateway
             $signed_in = wp_signon($credentials, false);
 
             if (is_wp_error($signed_in)) {
-                wc_add_notice(__('That password didn’t match our records. Please try again or reset it.', 'wc-register-or-login'), 'error');
+                wc_add_notice(__('We couldn’t sign you in with those details. Please check your email and password or create a new account.', 'wc-register-or-login'), 'error');
                 $this->persist_session_data([
                     'email'        => $email,
                     'mode'         => 'login',
@@ -454,11 +385,7 @@ class WCRL_Gateway
             $created = $this->create_customer_account($email, $password);
 
             if (is_wp_error($created)) {
-                $message = $created->get_error_message();
-
-                if (method_exists($created, 'get_error_code') && 'registration-error-email-exists' === $created->get_error_code()) {
-                    $message = __('An account with that email already exists. Please enter your password instead.', 'wc-register-or-login');
-                }
+                $message = __('We couldn’t create your account with those details. Please try again or sign in instead.', 'wc-register-or-login');
 
                 wc_add_notice($message, 'error');
                 $this->persist_session_data([

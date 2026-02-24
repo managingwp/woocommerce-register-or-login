@@ -1,10 +1,21 @@
-# TODO
+# Current
+
+## Changes
+* Automatic GitHub Updates Implement https://github.com/SilverAssist/wp-github-updater
+* The plugin should be compatiable with https://github.com/ElliotSowersby/simple-cloudflare-turnstile
+* Update Endpoint Currently wc-register-or-login-gateway but should be generic such as register-or-login
+* Email login links for existing accounts, then redirect with cart intact.
+* WooCommerce settings toggle(s) and optional Cloudflare Turnstile support.
+
+
+# Plugin Rewrite
 
 ## Completed
 - ✅ Logged-in users bypass gateway and go directly to checkout.
 - ✅ Guest cart "Proceed to checkout" is intercepted and routed through a gateway flow.
 - ✅ Gateway page asks for email and supports login/register branching.
 - ✅ New-account registration path logs user in and redirects to checkout.
+- ✅ Privacy-first identity flow removes explicit account detection and uses generic responses.
 
 ## Phase 1 — Convert to Standard Plugin (from MU Plugin)
 - [x] Create installable plugin bootstrap (regular plugin, not mu-plugin only).
@@ -14,10 +25,10 @@
 - [x] Update README install steps for normal plugin activation.
 
 ## Phase 2 — Privacy-First Identity Flow
-- [ ] Remove explicit account-detection endpoint/UI messaging.
-- [ ] Use generic responses that do not reveal whether an email exists.
-- [ ] Keep secure nonce validation and form hardening.
-- [ ] Ensure checkout redirection/cart continuity behavior remains intact.
+- [x] Remove explicit account-detection endpoint/UI messaging.
+- [x] Use generic responses that do not reveal whether an email exists.
+- [x] Keep secure nonce validation and form hardening.
+- [x] Ensure checkout redirection/cart continuity behavior remains intact.
 
 ## Phase 3 — Magic Link Login for Existing Accounts
 - [ ] Replace existing-account password flow with email magic-link flow.

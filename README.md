@@ -3,7 +3,7 @@
 
 ## Overview
 
-This proof-of-concept plugin inserts a friendly checkpoint between the WooCommerce cart and checkout for guests. When guest shoppers click **Proceed to checkout**, they are guided to a custom page that captures their email, auto-detects existing accounts, and either logs them in or creates a new profile before forwarding them to the standard checkout. Logged-in users bypass this step and go directly to checkout.
+This proof-of-concept plugin inserts a friendly checkpoint between the WooCommerce cart and checkout for guests. When guest shoppers click **Proceed to checkout**, they are guided to a custom page that captures their email and lets them choose to sign in or create an account before forwarding them to the standard checkout. Logged-in users bypass this step and go directly to checkout.
 
 ## Requirements
 
@@ -23,8 +23,8 @@ This proof-of-concept plugin inserts a friendly checkpoint between the WooCommer
 
 - Standard plugin scaffolding that only boots when WooCommerce is active.
 - Automatic creation of the gateway page with a tailored content override.
-- A responsive HTML form that auto-detects existing accounts by email and prompts for the right password flow with nonce protection.
-- Live account detection powered by a tiny REST endpoint so the form updates instantly as shoppers type.
+- A responsive HTML form that captures email and lets shoppers choose sign-in or account creation intent with nonce protection.
+- Privacy-first messaging that avoids explicit account-existence disclosure during gateway interactions.
 - Existing customers can log in directly from the gateway; their session is established before the checkout loads.
 - New customers can create an account on the spot with their chosen password, receive the standard WooCommerce “new account” email, and continue straight to checkout.
 - Logged-in users bypass the gateway entirely, including direct visits to the gateway URL, and are redirected to checkout.
@@ -33,7 +33,6 @@ This proof-of-concept plugin inserts a friendly checkpoint between the WooCommer
 ## Next steps
 
 - Email one-click login links for existing customers (Phase 3).
-- Privacy-first identity handling that avoids explicit account-existence disclosure (Phase 2).
 - Cross-device cart recovery for magic-link logins (Phase 4).
 - WooCommerce settings toggles (Phase 5).
 - Cloudflare Turnstile support (deferred).
