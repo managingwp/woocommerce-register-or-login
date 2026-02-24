@@ -18,6 +18,7 @@ This proof-of-concept plugin inserts a friendly checkpoint between the WooCommer
 3. Load your site once; the plugin auto-creates a published page named **Confirm your checkout details** (slug: `wc-register-or-login-gateway`).
 4. Visit the WooCommerce cart. Guest users are sent to the gateway page, while logged-in users go directly to WooCommerce checkout.
 5. Submit the form or use the “Skip and go straight to checkout” link to proceed.
+6. Configure behavior in **WooCommerce → Settings → Accounts & Privacy → Register or Login Gateway**.
 
 ## Current capabilities
 
@@ -29,9 +30,8 @@ This proof-of-concept plugin inserts a friendly checkpoint between the WooCommer
 - New customers can create an account on the spot with their chosen password, receive the standard WooCommerce “new account” email, and continue straight to checkout.
 - Logged-in users bypass the gateway entirely, including direct visits to the gateway URL, and are redirected to checkout.
 - Session persistence for partially completed forms plus a guarded fallback link to the native checkout URL.
+- WooCommerce settings for gateway enable/disable, page selection, magic-link TTL, rate limits, and optional non-PII operational logging.
 
 ## Next steps
 
-- Cross-device cart recovery for magic-link logins (Phase 4).
-- WooCommerce settings toggles (Phase 5).
 - Cloudflare Turnstile support (deferred).

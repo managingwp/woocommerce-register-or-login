@@ -7,13 +7,18 @@ if (! defined('ABSPATH')) {
 class WCRL_Gateway
 {
     private const OPTION_PAGE_ID = 'wc_register_or_login_gateway_page_id';
+    private const OPTION_ENABLED = 'wcrl_enabled';
+    private const OPTION_MAGIC_LINK_TTL_MINUTES = 'wcrl_magic_link_ttl_minutes';
+    private const OPTION_RATE_LIMIT_COUNT = 'wcrl_magic_link_rate_limit_count';
+    private const OPTION_RATE_LIMIT_WINDOW_MINUTES = 'wcrl_magic_link_rate_limit_window_minutes';
+    private const OPTION_LOGGING_ENABLED = 'wcrl_logging_enabled';
     private const PAGE_SLUG = 'wc-register-or-login-gateway';
     private const SESSION_KEY = 'wc_register_or_login_gateway_data';
     private const NONCE_ACTION = 'wc_register_or_login_gateway';
     private const MAGIC_LINK_QUERY_ARG = 'wcrl_magic_link';
-    private const MAGIC_LINK_TTL = 15 * MINUTE_IN_SECONDS;
-    private const MAGIC_LINK_RATE_LIMIT_COUNT = 3;
-    private const MAGIC_LINK_RATE_LIMIT_WINDOW = 15 * MINUTE_IN_SECONDS;
+    private const DEFAULT_MAGIC_LINK_TTL_MINUTES = 15;
+    private const DEFAULT_MAGIC_LINK_RATE_LIMIT_COUNT = 3;
+    private const DEFAULT_MAGIC_LINK_RATE_LIMIT_WINDOW_MINUTES = 15;
     private const MAGIC_LINK_TRANSIENT_PREFIX = 'wcrl_ml_';
     private const MAGIC_LINK_RATE_PREFIX = 'wcrl_ml_rate_';
 
@@ -22,6 +27,11 @@ class WCRL_Gateway
     public function bootstrap(): void
     {
         add_action('init', [$this, 'ensure_gateway_page']);
+
+        if (! $this->is_enabled()) {
+            return;
+        }
+
         add_action('init', [$this, 'register_cart_button_override']);
         add_action('wp', [$this, 'capture_page_id']);
         add_action('template_redirect', [$this, 'maybe_handle_magic_link'], 0);
@@ -401,6 +411,7 @@ class WCRL_Gateway
         $token = sanitize_text_field(wp_unslash($_GET[self::MAGIC_LINK_QUERY_ARG]));
 
         if (! preg_match('/^[a-f0-9]{64}$/', $token)) {
+            $this->log_event('magic_link_invalid_format');
             wc_add_notice(__('This login link is invalid or has expired. Please request a new one.', 'wc-register-or-login'), 'error');
             wp_safe_redirect($this->get_gateway_url());
             exit;
@@ -408,6 +419,9 @@ class WCRL_Gateway
 
         $payload = $this->consume_magic_link_payload($token);
         if (is_wp_error($payload)) {
+            $this->log_event('magic_link_payload_rejected', [
+                'reason' => $payload->get_error_code(),
+            ]);
             wc_add_notice(__('This login link is invalid or has expired. Please request a new one.', 'wc-register-or-login'), 'error');
             wp_safe_redirect($this->get_gateway_url());
             exit;
@@ -418,6 +432,7 @@ class WCRL_Gateway
         $user = $user_id ? get_user_by('id', $user_id) : false;
 
         if (! ($user instanceof WP_User) || ! $payload_email || strtolower($user->user_email) !== $payload_email) {
+            $this->log_event('magic_link_user_mismatch');
             wc_add_notice(__('This login link is invalid or has expired. Please request a new one.', 'wc-register-or-login'), 'error');
             wp_safe_redirect($this->get_gateway_url());
             exit;
@@ -427,6 +442,9 @@ class WCRL_Gateway
         if (isset($payload['cart_snapshot']) && is_array($payload['cart_snapshot'])) {
             $this->restore_cart_from_snapshot($payload['cart_snapshot']);
         }
+        $this->log_event('magic_link_login_success', [
+            'user_id' => $user_id,
+        ]);
         $this->persist_session_data(null);
         wc_add_notice(__('Welcome back! You’re now logged in and heading to checkout.', 'wc-register-or-login'), 'success');
         wp_safe_redirect(wc_get_checkout_url());
@@ -542,12 +560,17 @@ class WCRL_Gateway
      */
     private function request_magic_link(string $email)
     {
+        $ttl_minutes = $this->get_magic_link_ttl_minutes();
+        $ttl_seconds = $ttl_minutes * MINUTE_IN_SECONDS;
+
         if (! $this->consume_magic_link_rate_limit_slot($email)) {
+            $this->log_event('magic_link_rate_limited');
             return new WP_Error('rate_limited', __('Too many login link requests.', 'wc-register-or-login'));
         }
 
         $user = get_user_by('email', $email);
         if (! ($user instanceof WP_User)) {
+            $this->log_event('magic_link_request_nonexistent_account');
             return true;
         }
 
@@ -563,11 +586,11 @@ class WCRL_Gateway
             'user_id'    => (int) $user->ID,
             'email'      => strtolower($email),
             'created_at' => time(),
-            'expires_at' => time() + self::MAGIC_LINK_TTL,
+            'expires_at' => time() + $ttl_seconds,
             'cart_snapshot' => $this->get_current_cart_snapshot(),
         ];
 
-        set_transient($key, $payload, self::MAGIC_LINK_TTL);
+        set_transient($key, $payload, $ttl_seconds);
 
         $url = add_query_arg([
             self::MAGIC_LINK_QUERY_ARG => $token,
@@ -578,14 +601,21 @@ class WCRL_Gateway
             __('Use this one-time login link to continue checkout:%1$s%1$s%2$s%1$s%1$sThis link expires in %3$d minutes.', 'wc-register-or-login'),
             PHP_EOL,
             esc_url_raw($url),
-            (int) (self::MAGIC_LINK_TTL / MINUTE_IN_SECONDS)
+            $ttl_minutes
         );
 
         $sent = wp_mail($email, $subject, $message);
         if (! $sent) {
             delete_transient($key);
+            $this->log_event('magic_link_send_failed', [
+                'user_id' => (int) $user->ID,
+            ]);
             return new WP_Error('mail_send_failed', __('Unable to send login link.', 'wc-register-or-login'));
         }
+
+        $this->log_event('magic_link_sent', [
+            'user_id' => (int) $user->ID,
+        ]);
 
         return true;
     }
@@ -621,7 +651,9 @@ class WCRL_Gateway
             $attempts = [];
         }
 
-        $window_start = time() - self::MAGIC_LINK_RATE_LIMIT_WINDOW;
+        $window_seconds = $this->get_magic_link_rate_limit_window_minutes() * MINUTE_IN_SECONDS;
+        $window_start = time() - $window_seconds;
+        $limit_count = $this->get_magic_link_rate_limit_count();
         $filtered_attempts = [];
 
         foreach ($attempts as $timestamp) {
@@ -631,13 +663,13 @@ class WCRL_Gateway
             }
         }
 
-        if (count($filtered_attempts) >= self::MAGIC_LINK_RATE_LIMIT_COUNT) {
-            set_transient($key, $filtered_attempts, self::MAGIC_LINK_RATE_LIMIT_WINDOW);
+        if (count($filtered_attempts) >= $limit_count) {
+            set_transient($key, $filtered_attempts, $window_seconds);
             return false;
         }
 
         $filtered_attempts[] = time();
-        set_transient($key, $filtered_attempts, self::MAGIC_LINK_RATE_LIMIT_WINDOW);
+        set_transient($key, $filtered_attempts, $window_seconds);
 
         return true;
     }
@@ -706,6 +738,9 @@ class WCRL_Gateway
             $existing_map[$item_key] = $cart_item_key;
         }
 
+        $merged_items = 0;
+        $added_items = 0;
+
         foreach ($snapshot as $entry) {
             if (! is_array($entry)) {
                 continue;
@@ -727,6 +762,7 @@ class WCRL_Gateway
                 $cart_item_key = $existing_map[$item_key];
                 $existing_qty = isset($cart->cart_contents[$cart_item_key]['quantity']) ? (int) $cart->cart_contents[$cart_item_key]['quantity'] : 0;
                 $cart->set_quantity($cart_item_key, $existing_qty + $quantity, false);
+                $merged_items++;
                 continue;
             }
 
@@ -736,9 +772,15 @@ class WCRL_Gateway
             }
 
             $existing_map[$item_key] = $added_key;
+            $added_items++;
         }
 
         $cart->calculate_totals();
+        $this->log_event('cart_snapshot_restored', [
+            'snapshot_items' => count($snapshot),
+            'merged_items' => $merged_items,
+            'added_items' => $added_items,
+        ]);
     }
 
     private function build_cart_merge_key(int $product_id, int $variation_id, array $variation): string
@@ -767,5 +809,55 @@ class WCRL_Gateway
         ksort($normalized);
 
         return $normalized;
+    }
+
+    private function is_enabled(): bool
+    {
+        return 'no' !== get_option(self::OPTION_ENABLED, 'yes');
+    }
+
+    private function get_magic_link_ttl_minutes(): int
+    {
+        $value = (int) get_option(self::OPTION_MAGIC_LINK_TTL_MINUTES, self::DEFAULT_MAGIC_LINK_TTL_MINUTES);
+        return max(1, min(1440, $value));
+    }
+
+    private function get_magic_link_rate_limit_count(): int
+    {
+        $value = (int) get_option(self::OPTION_RATE_LIMIT_COUNT, self::DEFAULT_MAGIC_LINK_RATE_LIMIT_COUNT);
+        return max(1, min(20, $value));
+    }
+
+    private function get_magic_link_rate_limit_window_minutes(): int
+    {
+        $value = (int) get_option(self::OPTION_RATE_LIMIT_WINDOW_MINUTES, self::DEFAULT_MAGIC_LINK_RATE_LIMIT_WINDOW_MINUTES);
+        return max(1, min(1440, $value));
+    }
+
+    private function is_logging_enabled(): bool
+    {
+        return 'yes' === get_option(self::OPTION_LOGGING_ENABLED, 'no');
+    }
+
+    private function log_event(string $event, array $context = []): void
+    {
+        if (! $this->is_logging_enabled()) {
+            return;
+        }
+
+        if (! function_exists('wc_get_logger')) {
+            return;
+        }
+
+        $safe_context = [];
+
+        foreach ($context as $key => $value) {
+            if (is_scalar($value) || null === $value) {
+                $safe_context[(string) $key] = $value;
+            }
+        }
+
+        $safe_context['source'] = 'wc-register-or-login';
+        wc_get_logger()->info($event, $safe_context);
     }
 }

@@ -23,6 +23,7 @@
 - ✅ Updated README to reflect completed Phase 2 behavior.
 - ✅ Existing-account flow now uses one-time email magic links (15-minute TTL, one-time consumption, throttled sends).
 - ✅ Magic-link payload now snapshots cart and restores/merges it after login for cross-device recovery.
+- ✅ Added WooCommerce settings controls for enable toggle, TTL, rate limits, gateway page selection, and optional non-PII logging.
 
 ## Phase 1 — Convert to Standard Plugin (from MU Plugin)
 - [x] Create installable plugin bootstrap (regular plugin, not mu-plugin only).
@@ -50,11 +51,11 @@
 - [x] Validate restore behavior for same-device and cross-device flows.
 
 ## Phase 5 — WooCommerce Settings
-- [ ] Add plugin enable/disable toggle in WooCommerce settings.
-- [ ] Add configurable magic-link TTL setting.
-- [ ] Add configurable rate-limit setting (count + window).
-- [ ] Add gateway page selection/management setting.
-- [ ] Add basic operational logging toggle (non-PII).
+- [x] Add plugin enable/disable toggle in WooCommerce settings.
+- [x] Add configurable magic-link TTL setting.
+- [x] Add configurable rate-limit setting (count + window).
+- [x] Add gateway page selection/management setting.
+- [x] Add basic operational logging toggle (non-PII).
 
 ## Deferred
 - [ ] Cloudflare Turnstile integration (intentionally postponed).
