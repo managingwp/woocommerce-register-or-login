@@ -1,25 +1,10 @@
 <?php
-/**
- * Plugin Name:       WooCommerce Register or Login Gateway (MU)
- * Description:       Adds an intermediate step between the cart and checkout to collect account intent.
- * Author:            managingwp
- * Version:           0.1.0
- * License:           GPL-2.0-or-later
- * Text Domain:       wc-register-or-login
- */
 
 if (! defined('ABSPATH')) {
     exit;
 }
 
-if (defined('WC_REGISTER_OR_LOGIN_GATEWAY_LOADED')) {
-    return;
-}
-
-define('WC_REGISTER_OR_LOGIN_GATEWAY_LOADED', true);
-
-
-class WC_Register_Or_Login_Gateway
+class WCRL_Gateway
 {
     private const OPTION_PAGE_ID = 'wc_register_or_login_gateway_page_id';
     private const PAGE_SLUG = 'wc-register-or-login-gateway';
@@ -28,30 +13,10 @@ class WC_Register_Or_Login_Gateway
     private const REST_NAMESPACE = 'wc-register-or-login/v1';
     private const REST_ROUTE_DETECT = '/detect-user';
 
-    private static ?self $instance = null;
-
     private ?int $page_id = null;
-
-    public static function instance(): self
-    {
-        if (null === self::$instance) {
-            self::$instance = new self();
-        }
-
-        return self::$instance;
-    }
-
-    private function __construct()
-    {
-        add_action('plugins_loaded', [$this, 'bootstrap']);
-    }
 
     public function bootstrap(): void
     {
-        if (! $this->is_woocommerce_active()) {
-            return;
-        }
-
         add_action('init', [$this, 'ensure_gateway_page']);
         add_action('init', [$this, 'register_cart_button_override']);
         add_action('wp', [$this, 'capture_page_id']);
@@ -110,11 +75,6 @@ class WC_Register_Or_Login_Gateway
         add_action('woocommerce_proceed_to_checkout', [$this, 'render_proceed_to_checkout_button'], 20);
     }
 
-    private function is_woocommerce_active(): bool
-    {
-        return class_exists('WooCommerce');
-    }
-
     public function ensure_gateway_page(): void
     {
         $page_id = (int) get_option(self::OPTION_PAGE_ID);
@@ -163,7 +123,7 @@ class WC_Register_Or_Login_Gateway
 
     public function filter_checkout_url(string $url): string
     {
-        if (! $this->is_woocommerce_active() || ! function_exists('is_cart')) {
+        if (! function_exists('is_cart')) {
             return $url;
         }
 
@@ -381,7 +341,6 @@ class WC_Register_Or_Login_Gateway
                 detect(value);
             }, 400));
 
-            // Initialize mode on load when returning after submission errors.
             const initialMode = modeInput.value;
             if (initialMode) {
                 setMode(initialMode);
@@ -548,7 +507,7 @@ class WC_Register_Or_Login_Gateway
     private function is_gateway_page(): bool
     {
         $page_id = $this->get_gateway_page_id();
-        return $page_id && is_page($page_id);
+        return (bool) ($page_id && is_page($page_id));
     }
 
     private function login_customer(int $user_id): void
@@ -634,11 +593,3 @@ class WC_Register_Or_Login_Gateway
         }
     }
 }
-
-if (! function_exists('wc_register_or_login_gateway')) {
-    function wc_register_or_login_gateway() {
-        return WC_Register_Or_Login_Gateway::instance();
-    }
-}
-
-wc_register_or_login_gateway();

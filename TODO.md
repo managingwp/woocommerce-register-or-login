@@ -1,21 +1,4 @@
-# Current
-
-## Logged in Users
-* ✅ Existing logged in users now bypass Confirm your checkout details and go straight to checkout
-
-## Automatic GitHub Updates
-* Implement https://github.com/SilverAssist/wp-github-updater
-
-
-## Update Endpoint
-* Currently wc-register-or-login-gateway but should be generic such as register-or-login
-
-# Future
-* Email login links for existing accounts, then redirect with cart intact.
-* WooCommerce settings toggle(s) and optional Cloudflare Turnstile support.
-
-
-# Rewrite
+# TODO
 
 ## Completed
 - ✅ Logged-in users bypass gateway and go directly to checkout.
@@ -24,11 +7,11 @@
 - ✅ New-account registration path logs user in and redirects to checkout.
 
 ## Phase 1 — Convert to Standard Plugin (from MU Plugin)
-- [ ] Create installable plugin bootstrap (regular plugin, not mu-plugin only).
-- [ ] Move current logic into plugin classes/files for maintainability.
-- [ ] Add activation/deactivation hooks.
-- [ ] Preserve existing gateway content-override rendering behavior.
-- [ ] Update README install steps for normal plugin activation.
+- [x] Create installable plugin bootstrap (regular plugin, not mu-plugin only).
+- [x] Move current logic into plugin classes/files for maintainability.
+- [x] Add activation/deactivation hooks.
+- [x] Preserve existing gateway content-override rendering behavior.
+- [x] Update README install steps for normal plugin activation.
 
 ## Phase 2 — Privacy-First Identity Flow
 - [ ] Remove explicit account-detection endpoint/UI messaging.
