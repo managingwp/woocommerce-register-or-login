@@ -464,6 +464,9 @@ class WC_Register_Or_Login_Gateway
         }
 
         $this->login_customer($user_id);
+        if (isset($payload['cart_snapshot']) && is_array($payload['cart_snapshot'])) {
+            $this->restore_cart_from_snapshot($payload['cart_snapshot']);
+        }
         $this->persist_session_data(null);
         wc_add_notice(__('Welcome back! You’re now logged in and heading to checkout.', 'wc-register-or-login'), 'success');
         wp_safe_redirect(wc_get_checkout_url());
@@ -601,6 +604,7 @@ class WC_Register_Or_Login_Gateway
             'email'      => strtolower($email),
             'created_at' => time(),
             'expires_at' => time() + self::MAGIC_LINK_TTL,
+            'cart_snapshot' => $this->get_current_cart_snapshot(),
         ];
 
         set_transient($key, $payload, self::MAGIC_LINK_TTL);
@@ -689,6 +693,120 @@ class WC_Register_Or_Login_Gateway
         $normalized = strtolower(trim($email));
         $hash = hash('sha256', $normalized);
         return self::MAGIC_LINK_RATE_PREFIX . substr($hash, 0, 40);
+    }
+
+    private function get_current_cart_snapshot(): array
+    {
+        if (! function_exists('WC') || ! WC()->cart) {
+            return [];
+        }
+
+        $snapshot = [];
+
+        foreach (WC()->cart->get_cart() as $item) {
+            $product_id = isset($item['product_id']) ? (int) $item['product_id'] : 0;
+            $variation_id = isset($item['variation_id']) ? (int) $item['variation_id'] : 0;
+            $quantity = isset($item['quantity']) ? (int) $item['quantity'] : 0;
+            $variation = isset($item['variation']) && is_array($item['variation']) ? $item['variation'] : [];
+
+            if ($product_id <= 0 || $quantity <= 0) {
+                continue;
+            }
+
+            $snapshot[] = [
+                'product_id' => $product_id,
+                'variation_id' => $variation_id,
+                'quantity' => $quantity,
+                'variation' => $this->normalize_variation_attributes($variation),
+            ];
+        }
+
+        return $snapshot;
+    }
+
+    private function restore_cart_from_snapshot(array $snapshot): void
+    {
+        if (! function_exists('WC') || ! WC()->cart || empty($snapshot)) {
+            return;
+        }
+
+        $cart = WC()->cart;
+        $existing_map = [];
+
+        foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
+            $product_id = isset($cart_item['product_id']) ? (int) $cart_item['product_id'] : 0;
+            $variation_id = isset($cart_item['variation_id']) ? (int) $cart_item['variation_id'] : 0;
+            $variation = isset($cart_item['variation']) && is_array($cart_item['variation']) ? $cart_item['variation'] : [];
+
+            if ($product_id <= 0) {
+                continue;
+            }
+
+            $item_key = $this->build_cart_merge_key($product_id, $variation_id, $variation);
+            $existing_map[$item_key] = $cart_item_key;
+        }
+
+        foreach ($snapshot as $entry) {
+            if (! is_array($entry)) {
+                continue;
+            }
+
+            $product_id = isset($entry['product_id']) ? (int) $entry['product_id'] : 0;
+            $variation_id = isset($entry['variation_id']) ? (int) $entry['variation_id'] : 0;
+            $quantity = isset($entry['quantity']) ? (int) $entry['quantity'] : 0;
+            $variation = isset($entry['variation']) && is_array($entry['variation']) ? $entry['variation'] : [];
+
+            if ($product_id <= 0 || $quantity <= 0) {
+                continue;
+            }
+
+            $variation = $this->normalize_variation_attributes($variation);
+            $item_key = $this->build_cart_merge_key($product_id, $variation_id, $variation);
+
+            if (isset($existing_map[$item_key])) {
+                $cart_item_key = $existing_map[$item_key];
+                $existing_qty = isset($cart->cart_contents[$cart_item_key]['quantity']) ? (int) $cart->cart_contents[$cart_item_key]['quantity'] : 0;
+                $cart->set_quantity($cart_item_key, $existing_qty + $quantity, false);
+                continue;
+            }
+
+            $added_key = $cart->add_to_cart($product_id, $quantity, $variation_id, $variation);
+            if (! $added_key) {
+                continue;
+            }
+
+            $existing_map[$item_key] = $added_key;
+        }
+
+        $cart->calculate_totals();
+    }
+
+    private function build_cart_merge_key(int $product_id, int $variation_id, array $variation): string
+    {
+        $normalized_variation = $this->normalize_variation_attributes($variation);
+
+        return implode('|', [
+            (string) $product_id,
+            (string) $variation_id,
+            md5(wp_json_encode($normalized_variation)),
+        ]);
+    }
+
+    private function normalize_variation_attributes(array $variation): array
+    {
+        if (empty($variation)) {
+            return [];
+        }
+
+        $normalized = [];
+
+        foreach ($variation as $key => $value) {
+            $normalized[(string) $key] = wc_clean((string) $value);
+        }
+
+        ksort($normalized);
+
+        return $normalized;
     }
 }
 

@@ -22,6 +22,7 @@
 - ✅ Kept parity between standard plugin and MU plugin implementations.
 - ✅ Updated README to reflect completed Phase 2 behavior.
 - ✅ Existing-account flow now uses one-time email magic links (15-minute TTL, one-time consumption, throttled sends).
+- ✅ Magic-link payload now snapshots cart and restores/merges it after login for cross-device recovery.
 
 ## Phase 1 — Convert to Standard Plugin (from MU Plugin)
 - [x] Create installable plugin bootstrap (regular plugin, not mu-plugin only).
@@ -44,9 +45,9 @@
 - [x] Redirect to checkout after successful magic-link login.
 
 ## Phase 4 — Cross-Device Cart Recovery
-- [ ] Snapshot cart when issuing magic link.
-- [ ] Restore/merge cart if magic link is opened in another browser/device.
-- [ ] Validate restore behavior for same-device and cross-device flows.
+- [x] Snapshot cart when issuing magic link.
+- [x] Restore/merge cart if magic link is opened in another browser/device.
+- [x] Validate restore behavior for same-device and cross-device flows.
 
 ## Phase 5 — WooCommerce Settings
 - [ ] Add plugin enable/disable toggle in WooCommerce settings.
