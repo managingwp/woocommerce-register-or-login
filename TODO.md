@@ -16,6 +16,12 @@
 - ✅ Gateway page asks for email and supports login/register branching.
 - ✅ New-account registration path logs user in and redirects to checkout.
 - ✅ Privacy-first identity flow removes explicit account detection and uses generic responses.
+- ✅ Removed `detect-user` account-detection REST endpoint and client-side probing behavior.
+- ✅ Replaced auto-detection UI with explicit user intent selection (sign in vs create account).
+- ✅ Updated sign-in and registration failure notices to avoid account-enumeration leakage.
+- ✅ Kept parity between standard plugin and MU plugin implementations.
+- ✅ Updated README to reflect completed Phase 2 behavior.
+- ✅ Existing-account flow now uses one-time email magic links (15-minute TTL, one-time consumption, throttled sends).
 
 ## Phase 1 — Convert to Standard Plugin (from MU Plugin)
 - [x] Create installable plugin bootstrap (regular plugin, not mu-plugin only).
@@ -31,11 +37,11 @@
 - [x] Ensure checkout redirection/cart continuity behavior remains intact.
 
 ## Phase 3 — Magic Link Login for Existing Accounts
-- [ ] Replace existing-account password flow with email magic-link flow.
-- [ ] Generate one-time, expiring login links (TTL default: 15 minutes).
-- [ ] Enforce one-time token consumption and replay protection.
-- [ ] Add throttling for link requests (default: 3 sends / 15 minutes).
-- [ ] Redirect to checkout after successful magic-link login.
+- [x] Replace existing-account password flow with email magic-link flow.
+- [x] Generate one-time, expiring login links (TTL default: 15 minutes).
+- [x] Enforce one-time token consumption and replay protection.
+- [x] Add throttling for link requests (default: 3 sends / 15 minutes).
+- [x] Redirect to checkout after successful magic-link login.
 
 ## Phase 4 — Cross-Device Cart Recovery
 - [ ] Snapshot cart when issuing magic link.

@@ -25,6 +25,12 @@ class WC_Register_Or_Login_Gateway
     private const PAGE_SLUG = 'wc-register-or-login-gateway';
     private const SESSION_KEY = 'wc_register_or_login_gateway_data';
     private const NONCE_ACTION = 'wc_register_or_login_gateway';
+    private const MAGIC_LINK_QUERY_ARG = 'wcrl_magic_link';
+    private const MAGIC_LINK_TTL = 15 * MINUTE_IN_SECONDS;
+    private const MAGIC_LINK_RATE_LIMIT_COUNT = 3;
+    private const MAGIC_LINK_RATE_LIMIT_WINDOW = 15 * MINUTE_IN_SECONDS;
+    private const MAGIC_LINK_TRANSIENT_PREFIX = 'wcrl_ml_';
+    private const MAGIC_LINK_RATE_PREFIX = 'wcrl_ml_rate_';
 
     private static ?self $instance = null;
 
@@ -53,6 +59,7 @@ class WC_Register_Or_Login_Gateway
         add_action('init', [$this, 'ensure_gateway_page']);
         add_action('init', [$this, 'register_cart_button_override']);
         add_action('wp', [$this, 'capture_page_id']);
+        add_action('template_redirect', [$this, 'maybe_handle_magic_link'], 0);
         add_action('template_redirect', [$this, 'maybe_redirect_logged_in_gateway'], 1);
         add_action('template_redirect', [$this, 'handle_form_submission']);
 
@@ -181,8 +188,6 @@ class WC_Register_Or_Login_Gateway
                 .wcrl-gateway button[type="submit"] { background: #2f9d55; color: #fff; padding: 14px 22px; border: none; border-radius: 6px; font-size: 1rem; cursor: pointer; transition: background 0.2s ease; }
                 .wcrl-gateway button[type="submit"]:hover { background: #2a8a4c; }
                 .wcrl-gateway .wcrl-secondary { display: inline-block; margin-top: 16px; color: #555; text-decoration: underline; }
-                .wcrl-gateway .wcrl-status { font-size: 0.9rem; color: #2f6f9d; margin-bottom: 16px; display: none; }
-                .wcrl-gateway .wcrl-status.is-visible { display: block; }
                 .wcrl-gateway .wcrl-password-row { display: flex; flex-direction: column; gap: 8px; }
                 @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
                 @media (max-width: 600px) { .wcrl-gateway { margin: 20px 16px; padding: 24px; } }
@@ -212,9 +217,7 @@ class WC_Register_Or_Login_Gateway
                 </fieldset>
 
                 <div class="wcrl-step wcrl-step--login <?php echo 'login' === $mode ? 'is-active' : ''; ?>" data-step="login">
-                    <p class="wcrl-hint"><?php esc_html_e('Enter your password to sign in and continue to checkout.', 'wc-register-or-login'); ?></p>
-                    <label for="wcrl_password_existing"><?php esc_html_e('Account password', 'wc-register-or-login'); ?></label>
-                    <input type="password" id="wcrl_password_existing" name="wcrl_password_existing" autocomplete="current-password" <?php echo 'login' === $mode ? '' : 'disabled'; ?> />
+                    <p class="wcrl-hint"><?php esc_html_e('We’ll email you a secure one-time sign-in link to continue checkout.', 'wc-register-or-login'); ?></p>
                 </div>
 
                 <div class="wcrl-step wcrl-step--register <?php echo 'register' === $mode ? 'is-active' : ''; ?>" data-step="register">
@@ -241,7 +244,6 @@ class WC_Register_Or_Login_Gateway
 
             const loginStep = form.querySelector('[data-step="login"]');
             const registerStep = form.querySelector('[data-step="register"]');
-            const passwordExisting = form.querySelector('#wcrl_password_existing');
             const passwordNew = form.querySelector('#wcrl_password_new');
             const passwordConfirm = form.querySelector('#wcrl_password_confirm');
             const modeLogin = form.querySelector('#wcrl_mode_login');
@@ -256,8 +258,6 @@ class WC_Register_Or_Login_Gateway
                 if ('login' === mode) {
                     loginStep.classList.add('is-active');
                     registerStep.classList.remove('is-active');
-                    passwordExisting.disabled = false;
-                    passwordExisting.required = true;
                     passwordNew.disabled = true;
                     passwordConfirm.disabled = true;
                     passwordNew.required = false;
@@ -265,8 +265,6 @@ class WC_Register_Or_Login_Gateway
                 } else if ('register' === mode) {
                     registerStep.classList.add('is-active');
                     loginStep.classList.remove('is-active');
-                    passwordExisting.disabled = true;
-                    passwordExisting.required = false;
                     passwordNew.disabled = false;
                     passwordConfirm.disabled = false;
                     passwordNew.required = true;
@@ -274,8 +272,6 @@ class WC_Register_Or_Login_Gateway
                 } else {
                     loginStep.classList.add('is-active');
                     registerStep.classList.add('is-active');
-                    passwordExisting.disabled = false;
-                    passwordExisting.required = false;
                     passwordNew.disabled = false;
                     passwordConfirm.disabled = false;
                     passwordNew.required = false;
@@ -350,52 +346,28 @@ class WC_Register_Or_Login_Gateway
         $user = get_user_by('email', $email);
 
         if ('login' === $mode) {
-            $password = isset($_POST['wcrl_password_existing']) ? (string) wp_unslash($_POST['wcrl_password_existing']) : '';
+            $result = $this->request_magic_link($email);
 
-            if ('' === $password) {
-                wc_add_notice(__('Please enter your account password so we can log you in.', 'wc-register-or-login'), 'error');
-                $this->persist_session_data([
-                    'email'        => $email,
-                    'mode'         => 'login',
-                    'submitted_at' => time(),
-                ]);
+            $this->persist_session_data([
+                'email'        => $email,
+                'mode'         => 'login',
+                'submitted_at' => time(),
+            ]);
+
+            if (is_wp_error($result)) {
+                if ('rate_limited' === $result->get_error_code()) {
+                    wc_add_notice(__('Too many login link requests. Please wait a few minutes and try again.', 'wc-register-or-login'), 'error');
+                } else {
+                    wc_add_notice(__('We couldn’t send your login link right now. Please try again in a moment.', 'wc-register-or-login'), 'error');
+                }
+
                 wp_safe_redirect($this->get_gateway_url());
                 exit;
             }
 
-            if (! $user) {
-                wc_add_notice(__('We couldn’t sign you in with those details. Please check your email and password or create a new account.', 'wc-register-or-login'), 'error');
-                $this->persist_session_data([
-                    'email'        => $email,
-                    'mode'         => 'login',
-                    'submitted_at' => time(),
-                ]);
-                wp_safe_redirect($this->get_gateway_url());
-                exit;
-            }
-
-            $credentials = [
-                'user_login'    => $user->user_login,
-                'user_password' => $password,
-                'remember'      => true,
-            ];
-
-            $signed_in = wp_signon($credentials, false);
-
-            if (is_wp_error($signed_in)) {
-                wc_add_notice(__('We couldn’t sign you in with those details. Please check your email and password or create a new account.', 'wc-register-or-login'), 'error');
-                $this->persist_session_data([
-                    'email'        => $email,
-                    'mode'         => 'login',
-                    'submitted_at' => time(),
-                ]);
-                wp_safe_redirect($this->get_gateway_url());
-                exit;
-            }
-
-            $this->login_customer((int) $signed_in->ID);
-            $this->persist_session_data(null);
-            wc_add_notice(__('Welcome back! You’re now logged in and heading to checkout.', 'wc-register-or-login'), 'success');
+            wc_add_notice(__('If an account exists for that email, we sent a one-time sign-in link. Check your inbox to continue checkout.', 'wc-register-or-login'), 'success');
+            wp_safe_redirect($this->get_gateway_url());
+            exit;
         } else {
             $password = isset($_POST['wcrl_password_new']) ? (string) wp_unslash($_POST['wcrl_password_new']) : '';
             $confirm  = isset($_POST['wcrl_password_confirm']) ? (string) wp_unslash($_POST['wcrl_password_confirm']) : '';
@@ -452,6 +424,48 @@ class WC_Register_Or_Login_Gateway
             return;
         }
 
+        wp_safe_redirect(wc_get_checkout_url());
+        exit;
+    }
+
+    public function maybe_handle_magic_link(): void
+    {
+        if (! $this->is_gateway_page()) {
+            return;
+        }
+
+        if (! isset($_GET[self::MAGIC_LINK_QUERY_ARG])) {
+            return;
+        }
+
+        $token = sanitize_text_field(wp_unslash($_GET[self::MAGIC_LINK_QUERY_ARG]));
+
+        if (! preg_match('/^[a-f0-9]{64}$/', $token)) {
+            wc_add_notice(__('This login link is invalid or has expired. Please request a new one.', 'wc-register-or-login'), 'error');
+            wp_safe_redirect($this->get_gateway_url());
+            exit;
+        }
+
+        $payload = $this->consume_magic_link_payload($token);
+        if (is_wp_error($payload)) {
+            wc_add_notice(__('This login link is invalid or has expired. Please request a new one.', 'wc-register-or-login'), 'error');
+            wp_safe_redirect($this->get_gateway_url());
+            exit;
+        }
+
+        $user_id = isset($payload['user_id']) ? (int) $payload['user_id'] : 0;
+        $payload_email = isset($payload['email']) ? strtolower((string) $payload['email']) : '';
+        $user = $user_id ? get_user_by('id', $user_id) : false;
+
+        if (! ($user instanceof WP_User) || ! $payload_email || strtolower($user->user_email) !== $payload_email) {
+            wc_add_notice(__('This login link is invalid or has expired. Please request a new one.', 'wc-register-or-login'), 'error');
+            wp_safe_redirect($this->get_gateway_url());
+            exit;
+        }
+
+        $this->login_customer($user_id);
+        $this->persist_session_data(null);
+        wc_add_notice(__('Welcome back! You’re now logged in and heading to checkout.', 'wc-register-or-login'), 'success');
         wp_safe_redirect(wc_get_checkout_url());
         exit;
     }
@@ -558,6 +572,123 @@ class WC_Register_Or_Login_Gateway
         if ($session && method_exists($session, 'set')) {
             $session->set(self::SESSION_KEY, $data);
         }
+    }
+
+    /**
+     * @return true|WP_Error
+     */
+    private function request_magic_link(string $email)
+    {
+        if (! $this->consume_magic_link_rate_limit_slot($email)) {
+            return new WP_Error('rate_limited', __('Too many login link requests.', 'wc-register-or-login'));
+        }
+
+        $user = get_user_by('email', $email);
+        if (! ($user instanceof WP_User)) {
+            return true;
+        }
+
+        try {
+            $token = bin2hex(random_bytes(32));
+        } catch (Exception $exception) {
+            $token = wp_generate_password(64, false, false);
+        }
+
+        $key = $this->get_magic_link_storage_key($token);
+
+        $payload = [
+            'user_id'    => (int) $user->ID,
+            'email'      => strtolower($email),
+            'created_at' => time(),
+            'expires_at' => time() + self::MAGIC_LINK_TTL,
+        ];
+
+        set_transient($key, $payload, self::MAGIC_LINK_TTL);
+
+        $url = add_query_arg([
+            self::MAGIC_LINK_QUERY_ARG => $token,
+        ], $this->get_gateway_url() ?: wc_get_checkout_url());
+
+        $subject = __('Your checkout login link', 'wc-register-or-login');
+        $message = sprintf(
+            __('Use this one-time login link to continue checkout:%1$s%1$s%2$s%1$s%1$sThis link expires in %3$d minutes.', 'wc-register-or-login'),
+            PHP_EOL,
+            esc_url_raw($url),
+            (int) (self::MAGIC_LINK_TTL / MINUTE_IN_SECONDS)
+        );
+
+        $sent = wp_mail($email, $subject, $message);
+        if (! $sent) {
+            delete_transient($key);
+            return new WP_Error('mail_send_failed', __('Unable to send login link.', 'wc-register-or-login'));
+        }
+
+        return true;
+    }
+
+    /**
+     * @return array|WP_Error
+     */
+    private function consume_magic_link_payload(string $token)
+    {
+        $key = $this->get_magic_link_storage_key($token);
+        $payload = get_transient($key);
+
+        if (! is_array($payload)) {
+            return new WP_Error('invalid_token', __('Invalid token.', 'wc-register-or-login'));
+        }
+
+        delete_transient($key);
+
+        $expires_at = isset($payload['expires_at']) ? (int) $payload['expires_at'] : 0;
+        if ($expires_at > 0 && $expires_at < time()) {
+            return new WP_Error('expired_token', __('Expired token.', 'wc-register-or-login'));
+        }
+
+        return $payload;
+    }
+
+    private function consume_magic_link_rate_limit_slot(string $email): bool
+    {
+        $key = $this->get_magic_link_rate_key($email);
+        $attempts = get_transient($key);
+
+        if (! is_array($attempts)) {
+            $attempts = [];
+        }
+
+        $window_start = time() - self::MAGIC_LINK_RATE_LIMIT_WINDOW;
+        $filtered_attempts = [];
+
+        foreach ($attempts as $timestamp) {
+            $timestamp = (int) $timestamp;
+            if ($timestamp > $window_start) {
+                $filtered_attempts[] = $timestamp;
+            }
+        }
+
+        if (count($filtered_attempts) >= self::MAGIC_LINK_RATE_LIMIT_COUNT) {
+            set_transient($key, $filtered_attempts, self::MAGIC_LINK_RATE_LIMIT_WINDOW);
+            return false;
+        }
+
+        $filtered_attempts[] = time();
+        set_transient($key, $filtered_attempts, self::MAGIC_LINK_RATE_LIMIT_WINDOW);
+
+        return true;
+    }
+
+    private function get_magic_link_storage_key(string $token): string
+    {
+        $hash = hash_hmac('sha256', strtolower($token), wp_salt('nonce'));
+        return self::MAGIC_LINK_TRANSIENT_PREFIX . substr($hash, 0, 40);
+    }
+
+    private function get_magic_link_rate_key(string $email): string
+    {
+        $normalized = strtolower(trim($email));
+        $hash = hash('sha256', $normalized);
+        return self::MAGIC_LINK_RATE_PREFIX . substr($hash, 0, 40);
     }
 }
 

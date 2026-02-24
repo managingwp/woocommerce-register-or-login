@@ -25,14 +25,13 @@ This proof-of-concept plugin inserts a friendly checkpoint between the WooCommer
 - Automatic creation of the gateway page with a tailored content override.
 - A responsive HTML form that captures email and lets shoppers choose sign-in or account creation intent with nonce protection.
 - Privacy-first messaging that avoids explicit account-existence disclosure during gateway interactions.
-- Existing customers can log in directly from the gateway; their session is established before the checkout loads.
+- Existing customers receive one-time email magic links (15-minute expiry) and are logged in on link open.
 - New customers can create an account on the spot with their chosen password, receive the standard WooCommerce “new account” email, and continue straight to checkout.
 - Logged-in users bypass the gateway entirely, including direct visits to the gateway URL, and are redirected to checkout.
 - Session persistence for partially completed forms plus a guarded fallback link to the native checkout URL.
 
 ## Next steps
 
-- Email one-click login links for existing customers (Phase 3).
 - Cross-device cart recovery for magic-link logins (Phase 4).
 - WooCommerce settings toggles (Phase 5).
 - Cloudflare Turnstile support (deferred).
